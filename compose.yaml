@@ -1,0 +1,117 @@
+name: industrial-iot-platform
+
+x-app: &app
+  build: .
+  environment:
+    APP_ENV: ${APP_ENV:-development}
+    LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://iiot:iiot@postgres:5432/iiot}
+    MQTT_HOST: ${MQTT_HOST:-mosquitto}
+    MQTT_PORT: ${MQTT_PORT:-1883}
+    MQTT_TOPIC: ${MQTT_TOPIC:-factory/+/telemetry}
+    OPCUA_URL: ${OPCUA_URL:-opc.tcp://opcua-server:4840/factory/server/}
+    OPCUA_BIND_URL: ${OPCUA_BIND_URL:-opc.tcp://0.0.0.0:4840/factory/server/}
+    MODEL_PATH: ${MODEL_PATH:-/app/artifacts/isolation_forest.joblib}
+    MODEL_METADATA_PATH: ${MODEL_METADATA_PATH:-/app/artifacts/model_metadata.json}
+    ANOMALY_THRESHOLD: ${ANOMALY_THRESHOLD:--0.02}
+    API_BASE_URL: ${API_BASE_URL:-http://api:8000}
+    SIMULATION_INTERVAL_SECONDS: ${SIMULATION_INTERVAL_SECONDS:-1.0}
+  restart: unless-stopped
+  volumes:
+    - model-artifacts:/app/artifacts
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: iiot
+      POSTGRES_USER: iiot
+      POSTGRES_PASSWORD: iiot
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U iiot -d iiot"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  mosquitto:
+    image: eclipse-mosquitto:2
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./infra/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mosquitto_sub -h localhost -t '$$SYS/broker/version' -C 1 -W 3 >/dev/null"]
+      interval: 5s
+      timeout: 4s
+      retries: 10
+
+  trainer:
+    <<: *app
+    restart: "no"
+    command: ["python", "-m", "iiot_platform.anomaly.train"]
+
+  api:
+    <<: *app
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  mqtt-simulator:
+    <<: *app
+    command: ["python", "-m", "iiot_platform.simulators.mqtt"]
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+
+  mqtt-collector:
+    <<: *app
+    command: ["python", "-m", "iiot_platform.collectors.mqtt"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mosquitto:
+        condition: service_healthy
+      trainer:
+        condition: service_completed_successfully
+
+  opcua-server:
+    <<: *app
+    command: ["python", "-m", "iiot_platform.simulators.opcua"]
+    ports:
+      - "4840:4840"
+
+  opcua-collector:
+    <<: *app
+    command: ["python", "-m", "iiot_platform.collectors.opcua"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      trainer:
+        condition: service_completed_successfully
+      opcua-server:
+        condition: service_started
+
+  dashboard:
+    <<: *app
+    command:
+      - streamlit
+      - run
+      - src/iiot_platform/dashboard/app.py
+      - --server.address=0.0.0.0
+      - --server.port=8501
+      - --server.headless=true
+    ports:
+      - "8501:8501"
+    depends_on:
+      api:
+        condition: service_started
+
+volumes:
+  postgres-data:
+  model-artifacts:
