@@ -8,7 +8,7 @@ from iiot_platform.logging_config import configure_logging
 from iiot_platform.simulators.common import EquipmentSignalGenerator
 
 logger = logging.getLogger(__name__)
-NAMESPACE_URI = "urn:portfolio:industrial-iot"
+NAMESPACE_URI = "urn:harsha:industrial-iot"
 
 
 async def run() -> None:
@@ -16,7 +16,7 @@ async def run() -> None:
     server = Server()
     await server.init()
     server.set_endpoint(settings.opcua_bind_url)
-    server.set_server_name("Portfolio Industrial IoT OPC-UA Simulator")
+    server.set_server_name("Industrial IoT OPC-UA Simulator")
     namespace = await server.register_namespace(NAMESPACE_URI)
     machine = await server.nodes.objects.add_object(
         ua.NodeId("compressor-301", namespace), "Compressor 301"

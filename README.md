@@ -1,19 +1,25 @@
 # Industrial IoT Monitoring and Predictive Analytics Platform
 
-A portfolio-scale industrial IoT reference project that simulates rotating equipment, ingests telemetry over **MQTT** and **OPC-UA**, stores time-series data in **PostgreSQL**, scores readings with a **scikit-learn Isolation Forest**, exposes results through **FastAPI**, and visualizes system health in a **Streamlit dashboard**.
+[![CI](https://github.com/harshags98work-png/industrial-iot-predictive-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/harshags98work-png/industrial-iot-predictive-platform/actions/workflows/ci.yml)
+[![Python](https://img.shields.io/badge/Python-3.11--3.13-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-> This is an engineering demonstration using synthetic equipment data. It does not claim production deployment or validated failure prediction on real machinery.
+I started this project to understand the complete path from industrial equipment telemetry to something an engineer can inspect and act on. The system simulates rotating equipment, collects readings through MQTT and OPC-UA, stores them in PostgreSQL, scores unusual operating patterns, and presents the results through an API and dashboard.
 
-## What the demo proves
+Everything runs locally with Docker Compose. The equipment data and fault conditions are synthetic, so the anomaly output should be treated as an engineering experiment—not a validated prediction of real equipment failure.
 
-- Two industrial protocol paths converge on one validated telemetry contract.
-- Normal and injected-fault readings are persisted with equipment and event context.
-- Anomaly scores are stored separately from raw observations and exposed by REST APIs.
-- Health checks distinguish application liveness from database readiness.
-- A single Docker Compose command starts the database, broker, simulators, collectors, API, and dashboard.
-- Automated tests and GitHub Actions check API and anomaly-model behavior.
+## What is implemented
 
-## Architecture
+- MQTT simulation and collection for a centrifugal pump and induction motor.
+- An OPC-UA server and collector for a rotary-screw compressor.
+- A shared Pydantic telemetry contract across both protocol paths.
+- PostgreSQL tables for equipment, sensor readings, anomaly results, maintenance events, and system events.
+- A scikit-learn Isolation Forest trained on synthetic normal-operation data.
+- FastAPI endpoints for equipment status, sensor history, anomaly events, liveness, and readiness.
+- A Streamlit dashboard for current readings, signal trends, and recent anomalies.
+- Docker Compose for the full local environment and GitHub Actions for linting and tests.
+
+## System design
 
 ```mermaid
 flowchart LR
@@ -28,37 +34,41 @@ flowchart LR
   API --> UI[Streamlit dashboard]
 ```
 
-See [docs/architecture.md](docs/architecture.md) for component responsibilities and tradeoffs.
+The main design decision was to keep MQTT and OPC-UA at the edge of the application. After validation, both collectors send the same `TelemetryReading` object through the same persistence and scoring path. This keeps the database and analytics code independent of the source protocol.
 
-## Quick start with Docker
+More detail is available in [the architecture notes](docs/architecture.md) and [decision log](docs/decisions.md).
 
-Prerequisites: Docker Desktop with Docker Compose v2.
+## Run the complete demo
+
+You need Docker Desktop with Docker Compose v2.
 
 ```bash
+git clone https://github.com/harshags98work-png/industrial-iot-predictive-platform.git
+cd industrial-iot-predictive-platform
 docker compose up --build
 ```
 
-The Compose file includes safe local defaults. Copy `.env.example` to `.env` only when you want to override them.
+After the containers start:
 
-After startup:
+| Component | Address |
+|---|---|
+| Engineering dashboard | <http://localhost:8501> |
+| FastAPI documentation | <http://localhost:8000/docs> |
+| Readiness check | <http://localhost:8000/health/ready> |
 
-- API documentation: <http://localhost:8000/docs>
-- Dashboard: <http://localhost:8501>
-- API readiness: <http://localhost:8000/health/ready>
+The simulators inject short bearing-wear and overheating windows. Allow 30–60 seconds for enough readings to appear in the dashboard.
 
-The simulators deliberately inject intermittent bearing-wear and overheating conditions. Allow 30–60 seconds for trends and anomaly events to appear.
-
-Stop the stack with:
+Stop the application with:
 
 ```bash
 docker compose down
 ```
 
-Add `-v` only when you intentionally want to delete the local database volume.
+The Compose file has local defaults. Copy `.env.example` to `.env` only when you need different ports, database credentials, topics, or model settings.
 
 ## Local development
 
-Python 3.12 is recommended; supported local versions are Python 3.11–3.13.
+Python 3.12 is the primary development version; Python 3.11–3.13 are supported.
 
 ```bash
 python -m venv .venv
@@ -69,15 +79,15 @@ pytest
 ruff check .
 ```
 
-Run PostgreSQL and Mosquitto with Docker, then start individual components:
+To work on one process at a time, start the shared infrastructure first:
 
 ```bash
 docker compose up -d postgres mosquitto
 python -m iiot_platform.anomaly.train
 uvicorn iiot_platform.main:app --reload
-python -m iiot_platform.simulators.mqtt
-python -m iiot_platform.collectors.mqtt
 ```
+
+The development conventions are documented in [docs/development-workflow.md](docs/development-workflow.md).
 
 ## API examples
 
@@ -87,42 +97,56 @@ curl 'http://localhost:8000/api/v1/equipment/pump-101/readings?limit=25'
 curl 'http://localhost:8000/api/v1/anomalies?equipment_id=pump-101&limit=20'
 ```
 
-Endpoint details are in [docs/api.md](docs/api.md).
+See [docs/api.md](docs/api.md) for endpoint behavior and health-state definitions.
 
-## Repository map
+## Repository structure
 
 ```text
 src/iiot_platform/
 ├── api/routes/       REST endpoints
-├── anomaly/          training, artifact loading, and scoring
+├── anomaly/          model training, loading, and scoring
 ├── collectors/       MQTT and OPC-UA protocol adapters
 ├── dashboard/        Streamlit engineering dashboard
-├── simulators/       normal operation and fault injection
+├── simulators/       equipment signals and fault injection
 ├── config.py         environment-based configuration
 ├── db.py             asynchronous database lifecycle
 ├── models.py         relational data model
 └── services.py       shared ingestion and query logic
 ```
 
-## Roadmap
+## Current limitations
 
-- [x] MQTT telemetry simulation and collection
-- [x] OPC-UA server simulation and collection
-- [x] PostgreSQL equipment, reading, anomaly, event, and maintenance schema
-- [x] Isolation Forest training and runtime scoring
-- [x] FastAPI equipment, history, anomaly, and health endpoints
-- [x] Streamlit status and trend dashboard
-- [x] Docker Compose local environment
-- [x] Unit/API tests and GitHub Actions
-- [ ] Alembic migration history for post-MVP schema changes
-- [ ] Authenticated operator and administrator roles
-- [ ] Model evaluation report with labeled holdout fault scenarios
-- [ ] Prometheus metrics and OpenTelemetry traces
+- The model is trained and tested on synthetic data rather than measurements from real equipment.
+- An anomaly score describes distance from the learned baseline; it is not a failure probability or remaining-useful-life estimate.
+- OPC-UA readings are polled rather than received through subscriptions.
+- The local Mosquitto configuration allows anonymous access and is not appropriate for an exposed environment.
+- The initial schema is created at startup; migration history is planned for later schema changes.
 
-## Portfolio talking points
+These boundaries are intentional. They keep the current version reproducible while leaving clear next steps that can be evaluated with evidence.
 
-The strongest defensible story is the end-to-end contract: protocol-specific collection, one normalized schema, transactional persistence, reproducible anomaly scoring, query APIs, visualization, and automated verification. Be explicit that the equipment and faults are simulated and that anomaly detection is an early-warning demonstration—not a certified predictive-maintenance model.
+## Next steps
+
+- [ ] Build a labeled holdout set for bearing wear, overheating, sensor drift, and pressure loss.
+- [ ] Report false alarms per operating hour and detection lead time.
+- [ ] Introduce Alembic migration history and PostgreSQL integration tests.
+- [ ] Replace OPC-UA polling with subscriptions and preserve source quality codes.
+- [ ] Add MQTT TLS, authentication, and API roles before any shared deployment.
+- [ ] Add Prometheus metrics and OpenTelemetry traces after measuring useful service-level signals.
+
+## Documentation
+
+- [Architecture](docs/architecture.md)
+- [Database schema and example SQL](docs/database.md)
+- [API reference](docs/api.md)
+- [Model workflow and limitations](docs/ml-workflow.md)
+- [Testing approach](docs/testing.md)
+- [Architecture decisions](docs/decisions.md)
+- [Development workflow](docs/development-workflow.md)
+
+## Author
+
+Harsha Sanka — [GitHub profile](https://github.com/harshags98work-png)
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+Released under the [MIT License](LICENSE).

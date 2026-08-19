@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "industrial-iot-predictive-platform"
 version = "0.1.0"
-description = "Portfolio-scale industrial IoT monitoring and anomaly analytics platform"
+description = "Industrial IoT monitoring and anomaly analytics platform"
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
 license = {text = "MIT"}
